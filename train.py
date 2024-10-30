@@ -1,142 +1,109 @@
 import tensorflow as tf
-from tensorflow.keras import layers, Model
-import numpy as np
 import cv2
 import os
 import pytesseract
+import numpy as np
+from tensorflow.keras.layers import Input, Conv2D, MaxPooling2D, Reshape, Dense, Dropout, Bidirectional, LSTM
+from tensorflow.keras.models import Model
+from tensorflow.keras.callbacks import ModelCheckpoint, TensorBoard
+import datetime
 
-#CNN-BiLSTM Model
-def create_ocr_model(input_shape=(128, 32, 1), vocab_size=80):
-    inputs = layers.Input(shape=input_shape)
-    
-    #CNN feature extractor
-    x = layers.Conv2D(64, (3, 3), activation="relu", padding="same")(inputs)
-    x = layers.MaxPooling2D(pool_size=(2, 2))(x)
+#constants
+IMAGE_DIR = './dataset'
+WEIGHTS_PATH = 'ocr_model_weights.keras'
+LOG_DIR = 'logs/fit/' + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
 
-    x = layers.Conv2D(128, (3, 3), activation="relu", padding="same")(x)
-    x = layers.MaxPooling2D(pool_size=(2, 2))(x)
+#use GPU
+if tf.config.list_physical_devices('GPU'):
+    print("GPU is available and will be used.")
+    tf.config.experimental.set_memory_growth(tf.config.list_physical_devices('GPU')[0], True)
+else:
+    print("No GPU found. Please ensure TensorFlow is installed with GPU support.")
+
+
+def preprocess_image(image_path):
+    # Preprocess image by loading, cropping, resizing, and normalizing
+    image = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+    h, w = image.shape
+    handwritten_image = image[int(h * 0.5):, :]  # Crop handwritten section
+    handwritten_image = cv2.resize(handwritten_image, (128, 32))  # Resize
+    handwritten_image = handwritten_image / 255.0  # Normalize
+    return handwritten_image
+
+def extract_text_from_image(image_path, current_index, total_images):
+    #extract printed groundtruth text from upper section of image using OCR
+    image = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+    print(f"Processing text for image : {image_path}")
+    h, w = image.shape
+    printed_text_image = image[:int(h * 0.5), :]  #crop printed section
+    printed_text = pytesseract.image_to_string(printed_text_image)
+    print(f"Success: {current_index}/{total_images}")
+    return printed_text.strip()
+
+
+#model definition
+def build_model(input_shape, num_classes):
+    #CNN-LSTM model
+    inputs = Input(shape=input_shape, name='input_image')
+    x = Conv2D(32, (3, 3), activation='relu', padding='same')(inputs)
+    x = MaxPooling2D(pool_size=(2, 2))(x)
+    x = Conv2D(64, (3, 3), activation='relu', padding='same')(x)
+    x = MaxPooling2D(pool_size=(2, 2))(x)
     
-    x = layers.Conv2D(256, (3, 3), activation="relu", padding="same")(x)
-    x = layers.BatchNormalization()(x)
-    x = layers.MaxPooling2D(pool_size=(1, 2))(x)
+    #reshape for RNN
+    new_shape = (input_shape[0] // 4, input_shape[1] // 4 * 64)
+    x = Reshape(target_shape=new_shape)(x)
+    x = Dense(128, activation='relu')(x)
+    x = Dropout(0.25)(x)
+
+    #LSTM layers
+    x = Bidirectional(LSTM(128, return_sequences=True))(x)
+    x = Bidirectional(LSTM(128, return_sequences=True))(x)
+    outputs = Dense(num_classes, activation='softmax')(x)
     
-    x = layers.Conv2D(256, (3, 3), activation="relu", padding="same")(x)
-    x = layers.BatchNormalization()(x)
-    x = layers.MaxPooling2D(pool_size=(1, 2))(x)
-    
-    x = layers.Conv2D(512, (3, 3), activation="relu", padding="same")(x)
-    x = layers.BatchNormalization()(x)
-    x = layers.Conv2D(512, (3, 3), activation="relu", padding="same")(x)
-    x = layers.BatchNormalization()(x)
-    x = layers.MaxPooling2D(pool_size=(1, 2))(x)
-    
-    #reshape for LSTM layers
-    shape = x.shape
-    x = layers.Reshape((shape[1], shape[2] * shape[3]))(x)
-    
-    #bidirectional LSTM layers for sequence modeling
-    x = layers.Bidirectional(layers.LSTM(256, return_sequences=True))(x)
-    x = layers.Bidirectional(layers.LSTM(256, return_sequences=True))(x)
-    
-    #output layer
-    x = layers.Dense(vocab_size + 1, activation="softmax")(x)
-    
-    model = Model(inputs, x)
+    model = Model(inputs, outputs)
     return model
 
-#function to extract text labels using Tesseract OCR
-def extract_text_labels(img_path):
-    img = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
-    text = pytesseract.image_to_string(img, config="--psm 7")  # PSM 7 for single-line text
-    return text.strip()
+#CTC loss function
+def ctc_loss(y_true, y_pred):
+    # Define CTC loss function for training
+    return tf.nn.ctc_loss(y_true, y_pred, logits_time_major=False, blank_index=-1)
 
-#data generator for images with extracted labels
-class DataGenerator(tf.keras.utils.Sequence):
-    def __init__(self, img_paths, batch_size, img_width, img_height, vocab, max_text_length):
-        self.img_paths = img_paths
-        self.batch_size = batch_size
-        self.img_width = img_width
-        self.img_height = img_height
-        self.vocab = vocab
-        self.max_text_length = max_text_length
-        self.indices = np.arange(len(img_paths))
-        
-        #extract labels from images
-        self.labels = [extract_text_labels(path) for path in img_paths]
-
-    def __len__(self):
-        return len(self.img_paths) // self.batch_size
-
-    def __getitem__(self, index):
-        batch_indices = self.indices[index * self.batch_size:(index + 1) * self.batch_size]
-        images, texts = [], []
-        
-        for i in batch_indices:
-            img = cv2.imread(self.img_paths[i], cv2.IMREAD_GRAYSCALE)
-            img = cv2.resize(img, (self.img_width, self.img_height))
-            img = img / 255.0  #normalize
-            img = np.expand_dims(img, axis=-1)
-            images.append(img)
-            
-            text = self.labels[i]
-            text = [self.vocab.get(char, 0) for char in text]  #handles missing characters
-            texts.append(text)
-        
-        images = np.array(images)
-        texts = tf.keras.preprocessing.sequence.pad_sequences(texts, maxlen=self.max_text_length, padding='post')
-        input_lengths = np.ones(len(images)) * (self.img_width // 4)
-        label_lengths = np.array([len(t) for t in texts])
-        
-        return [images, texts, input_lengths, label_lengths], np.zeros(len(images))
-
-    def on_epoch_end(self):
-        np.random.shuffle(self.indices)
-
-#CTC Loss Function for spaces as well
-def ctc_loss_lambda_func(y_true, y_pred):
-    input_length = tf.cast(tf.shape(y_pred)[1], dtype="int64")
-    label_length = tf.cast(tf.shape(y_true)[1], dtype="int64")
+#training pipeline
+def train_model():
+    input_shape = (32, 128, 1)  #djust to match image resizing dimensions
+    num_classes = 80  #ASCII space or character count based on dataset
+    model = build_model(input_shape, num_classes)
     
-    loss = tf.keras.backend.ctc_batch_cost(y_true, y_pred, input_length, label_length)
-    return loss
+    #load previously saved model
+    if os.path.exists(WEIGHTS_PATH):
+        model.load_weights(WEIGHTS_PATH)
+    
+    #compile model
+    model.compile(optimizer='adam', loss=ctc_loss)
+    
+    #define callbacks
+    checkpoint_callback = ModelCheckpoint(WEIGHTS_PATH, save_best_only=True, monitor='val_loss', mode='min')
+    tensorboard_callback = TensorBoard(log_dir=LOG_DIR, histogram_freq=1, write_graph=True)
 
-#define character set and load data paths
-char_list = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.,!?\"' "
-vocab = {char: i+1 for i, char in enumerate(char_list)}  # Mapping each character to an integer
-vocab_size = len(vocab)
+    #data loading and generator
+    image_paths = [os.path.join(IMAGE_DIR, fname) for fname in os.listdir(IMAGE_DIR)]
+    total_images = len(image_paths)
+    train_data = []
+    train_labels = []
+    
+    for i, image_path in enumerate(image_paths, 1):
+        processed_image = preprocess_image(image_path)
+        printed_text = extract_text_from_image(image_path, i, total_images)
+        train_data.append(processed_image)
+        train_labels.append(printed_text)
+    
+    train_data = np.array(train_data).reshape(-1, 32, 128, 1)
+    train_labels = np.array(train_labels)  #update as needed for CTC format
 
-#image dataset paths from a folder
-img_dir = "/path/to/your/images"  # Replace with the actual directory path
-img_paths = [os.path.join(img_dir, fname) for fname in os.listdir(img_dir) if fname.endswith(('.png', '.jpg', '.jpeg'))]
+    #train the model
+    model.fit(train_data, train_labels, batch_size=16, epochs=10, validation_split=0.2, callbacks=[checkpoint_callback, tensorboard_callback])
 
-#parameters
-input_shape = (128, 32, 1)
-max_text_length = 100  # Adjust based on your data
-batch_size = 16
-model_weights_path = "ocr_model_weights.h5"  # Path to save/load model weights
 
-#model instantiation
-model = create_ocr_model(input_shape=input_shape, vocab_size=vocab_size)
-model.compile(optimizer="adam", loss=ctc_loss_lambda_func)
-
-#load existing weights if available
-if os.path.exists(model_weights_path):
-    print("Loading existing weights from:", model_weights_path)
-    model.load_weights(model_weights_path)
-else:
-    print("No existing weights found, starting from scratch.")
-
-#prepare data generator
-train_data = DataGenerator(img_paths, batch_size, input_shape[1], input_shape[0], vocab, max_text_length)
-
-#callback to save weights after each epoch
-checkpoint_callback = tf.keras.callbacks.ModelCheckpoint(
-    model_weights_path,
-    monitor='loss',
-    save_best_only=True,
-    save_weights_only=True,
-    verbose=1
-)
-
-#train fr fr
-model.fit(train_data, epochs=50, callbacks=[checkpoint_callback])
+#tun training
+train_model()
