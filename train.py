@@ -1,145 +1,129 @@
-import tensorflow as tf
-import cv2
 import os
-import pytesseract
+import cv2
 import numpy as np
-from tensorflow.keras.layers import Input, Conv2D, MaxPooling2D, Reshape, Dense, Dropout, Bidirectional, LSTM
-from tensorflow.keras.models import Model
-from tensorflow.keras.callbacks import ModelCheckpoint, TensorBoard, Callback
-from tensorflow.keras.preprocessing.sequence import pad_sequences
-import tensorflow.keras.backend as K
-import datetime
-import concurrent.futures
+import tensorflow as tf
+from tensorflow.keras import layers, models, callbacks
 
-IMAGE_DIR = './dataset'
-WEIGHTS_PATH = 'ocr_model_weights.keras'
-LOG_DIR = 'logs/fit/' + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-NUM_CLASSES = 80
-BATCH_SIZE = 16
-EPOCHS = 10
 
-#character mapping
-characters = sorted(set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"))
-char_to_num = {char: idx + 1 for idx, char in enumerate(characters)}
-max_label_length = 32
+def load_GT(file_path):
+    image_text_map = {}
+    with open(file_path, 'r') as file:
+        for line in file:
+            parts = line.strip().split('\t')
+            if len(parts) == 2:
+                image_name, text = parts
+                image_text_map[image_name] = text.strip('"')
+    return image_text_map
 
-#use GPU
-if tf.config.list_physical_devices('GPU'):
-    print("GPU is available and will be used.")
-    tf.config.experimental.set_memory_growth(tf.config.list_physical_devices('GPU')[0], True)
-else:
-    print("No GPU found. Please ensure TensorFlow is installed with GPU support.")
 
-def preprocess_image(image_path):
-    #preprocess image by loading, cropping, resizing, and normalizing
-    image = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
-    h, w = image.shape
-    handwritten_image = image[int(h * 0.5):, :]  #crop handwritten section
-    handwritten_image = cv2.resize(handwritten_image, (128, 32))
-    handwritten_image = handwritten_image / 255.0  #normalize
-    return handwritten_image
-
-def extract_text_from_image(image_path):
-    #extract printed groundtruth text from upper section of image using OCR
-    image = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
-    h, w = image.shape
-    printed_text_image = image[:int(h * 0.5), :]  #crop printed section
-    printed_text = pytesseract.image_to_string(printed_text_image)
-    return printed_text.strip()
-
-def encode_label(text):
-    return [char_to_num.get(char, 0) for char in text]
-
-#model definition
-def build_model(input_shape, num_classes):
-    #CNN-LSTM model
-    inputs = Input(shape=input_shape, name='input_image')
-    x = Conv2D(32, (3, 3), activation='relu', padding='same')(inputs)
-    x = MaxPooling2D(pool_size=(2, 2))(x)
-    x = Conv2D(64, (3, 3), activation='relu', padding='same')(x)
-    x = MaxPooling2D(pool_size=(2, 2))(x)
+class DataGenerator(tf.keras.utils.Sequence):
+    def __init__(self, image_text_map, image_dir, batch_size=32, img_size=(1024, 64), max_text_len=128, charset="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.,?!'\" "):
+        self.image_text_map = image_text_map
+        self.image_dir = image_dir
+        self.batch_size = batch_size
+        self.img_size = img_size
+        self.max_text_len = max_text_len
+        self.charset = charset
+        self.char_to_num = {char: idx for idx, char in enumerate(charset)}
+        self.num_to_char = {idx: char for char, idx in self.char_to_num.items()}
+        self.indices = list(self.image_text_map.keys())
     
-    #reshape for RNN
-    new_shape = (input_shape[0] // 4, input_shape[1] // 4 * 64)
-    x = Reshape(target_shape=new_shape)(x)
-    x = Dense(128, activation='relu')(x)
-    x = Dropout(0.25)(x)
+    def __len__(self):
+        return len(self.indices) // self.batch_size
 
-    #LSTM layers
-    x = Bidirectional(LSTM(128, return_sequences=True))(x)
-    x = Bidirectional(LSTM(128, return_sequences=True))(x)
-    outputs = Dense(num_classes, activation='softmax')(x)
+    def encode_text(self, text):
+        encoded = [self.char_to_num.get(char, 0) for char in text]
+        return encoded + [0] * (self.max_text_len - len(encoded))
+
+    def __getitem__(self, idx):
+        batch_images = []
+        batch_texts = []
+        
+        for i in range(self.batch_size):
+            image_name = self.indices[idx * self.batch_size + i]
+            image_path = os.path.join(self.image_dir, image_name)
+            text = self.image_text_map[image_name]
+
+
+            image = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+            image = cv2.resize(image, self.img_size)
+            image = image.astype("float32") / 255.0
+            batch_images.append(image)
+            
+            #encode ext
+            encoded_text = self.encode_text(text)
+            batch_texts.append(encoded_text)
+        
+        batch_images = np.array(batch_images).reshape(-1, self.img_size[0], self.img_size[1], 1)
+        batch_texts = np.array(batch_texts)
+        
+        return batch_images, batch_texts
+
+
+def model_arch(input_shape, vocab_size):
+    input_img = layers.Input(shape=input_shape, name="image_input")
+    x = layers.Conv2D(32, (3, 3), activation="relu", padding="same")(input_img)
+    x = layers.MaxPooling2D(pool_size=(2, 2))(x)
+    x = layers.Conv2D(64, (3, 3), activation="relu", padding="same")(x)
+    x = layers.MaxPooling2D(pool_size=(2, 2))(x)
+    x = layers.Conv2D(128, (3, 3), activation="relu", padding="same")(x)
+    x = layers.MaxPooling2D(pool_size=(2, 2))(x)
     
-    model = Model(inputs, outputs)
+    conv_output = layers.Reshape(target_shape=(-1, x.shape[-1]))(x)
+    x = layers.Bidirectional(layers.LSTM(128, return_sequences=True))(conv_output)
+    x = layers.Bidirectional(layers.LSTM(128, return_sequences=True))(x)
+    output = layers.Dense(vocab_size + 1, activation="softmax")(x)  # +1 for CTC blank label
+
+    model = models.Model(inputs=input_img, outputs=output)
     return model
 
-#CTC loss function
+
 def ctc_loss(y_true, y_pred):
-    y_true = tf.cast(y_true, tf.int32)
-    label_length = tf.reduce_sum(tf.cast(tf.not_equal(y_true, 0), tf.int32), axis=1)
-    logit_length = tf.fill([tf.shape(y_pred)[0]], tf.shape(y_pred)[1])
-    return tf.nn.ctc_loss(
-        labels=y_true,
-        logits=y_pred,
-        label_length=label_length,
-        logit_length=logit_length,
-        logits_time_major=False,
-        blank_index=-1
-    )
-
-class ModelImprovementLogger(Callback):
-    def on_epoch_end(self, epoch, logs=None):
-        current_val_loss = logs.get("val_loss")
-        if self.model.stop_training:
-            print(f"Epoch {epoch + 1}: Training stopped early")
-        elif current_val_loss is not None and current_val_loss < self.best_val_loss:
-            print(f"Epoch {epoch + 1}: New best val_loss {current_val_loss:.4f} achieved!")
-            self.best_val_loss = current_val_loss
-        else:
-            print(f"Epoch {epoch + 1}: val_loss did not improve")
-
-#training pipeline
-def train_model():
-    input_shape = (32, 128, 1)
-    model = build_model(input_shape, NUM_CLASSES)
+    #tf.shape() to get dynamic shapes for batch and sequence length
+    batch_size = tf.shape(y_pred)[0]
+    sequence_length = tf.shape(y_pred)[1]
     
-    #Load previous weights if exists
-    if os.path.exists(WEIGHTS_PATH):
-        model.load_weights(WEIGHTS_PATH)
+    input_length = tf.ones(shape=(batch_size, 1)) * tf.cast(sequence_length, dtype="float32")
+    label_length = tf.ones(shape=(tf.shape(y_true)[0], 1)) * tf.cast(tf.shape(y_true)[1], dtype="float32")
     
-    model.compile(optimizer='adam', loss=ctc_loss)
+    return tf.keras.backend.ctc_batch_cost(y_true, y_pred, input_length, label_length)
+
+
+
+def train_model(data_generator, model, checkpoint_path="ocr_checkpoint.keras"):
     
-    #define callbacks
-    checkpoint_callback = ModelCheckpoint(WEIGHTS_PATH, save_best_only=True, monitor='val_loss', mode='min', verbose=1)
-    tensorboard_callback = TensorBoard(log_dir=LOG_DIR, histogram_freq=1, write_graph=True)
-    improvement_logger = ModelImprovementLogger()
+    
+    model.compile(optimizer="adam", loss=ctc_loss)
+    
 
-    #data loading
-    image_paths = [os.path.join(IMAGE_DIR, fname) for fname in os.listdir(IMAGE_DIR)]
-    train_data = []
-    train_labels = []
+    checkpoint = callbacks.ModelCheckpoint(checkpoint_path, save_best_only=True, monitor="loss", mode="min")
+    early_stopping = callbacks.EarlyStopping(monitor="loss", patience=10, restore_best_weights=True)
+    
+    #load weights if available
+    if os.path.exists(checkpoint_path):
+        model.load_weights(checkpoint_path)
+        print("Loaded previous model")
+    
 
-    #process images with multithreading for OCR
-    with concurrent.futures.ThreadPoolExecutor() as executor:
-        futures = {executor.submit(extract_text_from_image, path): path for path in image_paths}
-        for i, (future, path) in enumerate(futures.items(), start=1):
-            printed_text = future.result()
-            print(f"Processing text for image {i}/{len(image_paths)}: {path}")
-            processed_image = preprocess_image(path)
-            train_data.append(processed_image)
-            train_labels.append(encode_label(printed_text))
+    model.fit(data_generator, epochs=100, callbacks=[checkpoint, early_stopping])
 
-    train_data = np.array(train_data).reshape(-1, 32, 128, 1)
-    train_labels = pad_sequences(train_labels, maxlen=max_label_length, padding='post')
-    train_labels = np.array(train_labels)
 
-    model.fit(
-        train_data, train_labels,
-        batch_size=BATCH_SIZE,
-        epochs=EPOCHS,
-        validation_split=0.2,
-        callbacks=[checkpoint_callback, tensorboard_callback, improvement_logger]
-    )
 
-#train fr fr
-train_model()
+IMG_SIZE = (1024, 64)  
+BATCH_SIZE = 32
+MAX_TEXT_LEN = 128 
+CHARSET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789.,?!'\" "
+
+
+ground_truth_file = "./archive/IAM/gt_test.txt"
+image_dir = "./archive/IAM/image"
+image_text_map = load_GT(ground_truth_file)
+data_generator = DataGenerator(image_text_map, image_dir, BATCH_SIZE, IMG_SIZE, MAX_TEXT_LEN, CHARSET)
+
+
+vocab_size = len(CHARSET)
+input_shape = (IMG_SIZE[0], IMG_SIZE[1], 1)
+model = model_arch(input_shape, vocab_size)
+
+
+train_model(data_generator, model)
