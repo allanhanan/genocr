@@ -1,0 +1,17 @@
+# --- PyTorch for CUDA 12.1 ---
+torch==2.3.1
+torchvision==0.18.1
+
+# --- Core AI & ONNX Libraries ---
+# Pinned to ensure compatibility between model conversion and execution.
+ultralytics==8.2.28
+transformers==4.41.2
+optimum==1.20.0
+onnx==1.16.1
+onnxruntime-gpu==1.18.0
+
+# --- Utility Libraries ---
+# Stable versions for image processing and model architecture support.
+pillow==10.3.0
+timm==1.0.7
+numpy==1.26.4
