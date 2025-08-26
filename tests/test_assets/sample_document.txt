@@ -1,0 +1,32 @@
+=== OCR Results for sample_document.png ===
+
+Detected Context Objects:
+- laptop
+- person
+
+--- Raw OCR Output ---
+RAW LINE: "client"
+RAW LINE: "Profil"
+RAW LINE: "tenseignezlen"
+RAW LINE: "Nom"
+RAW LINE: "ecrivezleurider etleurrelationa"
+RAW LINE: "serviceque vous ustrationpeut egale"
+RAW LINE: "Description"
+RAW LINE: "clusepourunem"
+RAW LINE: "Donnees démog ohiques"
+RAW LINE: "Education"
+RAW LINE: "Experiences"
+RAW LINE: "professionnelles"
+RAW LINE: "antēcedents"
+RAW LINE: "professionnels"
+RAW LINE: "Adresse"
+RAW LINE: "Donneesperse"
+RAW LINE: "Intérets"
+RAW LINE: "Pointsimportan"
+RAW LINE: "retenir"
+RAW LINE: "Opportunités de"
+
+--- AI Correction Process ---
+
+--- Final Corrected Text ---
+Profile client Client Renseignez le nom de votre client Nom Décrivez leur identité, leurs activités et leur relation avec la produit ou le service que vous proposez. Une illustration peut également être incluse pour une meilleure visualisation. Description Données démographiques Education Experiences professionnelles au antécédents professionnels Adresse Données personnelles Intérêts Points importants à retenir Opportunités de

@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.18)
 project(GenOCRCore CXX)
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 
 # --- Find System Dependencies ---
@@ -205,5 +205,5 @@ target_link_libraries(genocr_core PRIVATE
 )
 
 # --- Build Test Executable ---
-add_executable(run_core_test src/main.cpp)
-target_link_libraries(run_core_test PRIVATE genocr_core)
+add_executable(genocr src/main.cpp)
+target_link_libraries(genocr PRIVATE genocr_core)

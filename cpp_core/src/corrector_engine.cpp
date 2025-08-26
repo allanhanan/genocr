@@ -12,7 +12,7 @@ namespace {
 constexpr size_t HARD_CONTEXT_CAP = 128000;
 constexpr size_t SAFETY_MARGIN = 1000; 
 constexpr double DEFAULT_TEMPERATURE = 0.3;
-constexpr double DEFAULT_TOP_P = 0.9;
+constexpr double DEFAULT_TOP_P = 0.8;
 
 std::filesystem::path make_temp_png_path() {
     auto now = std::chrono::steady_clock::now().time_since_epoch().count();
@@ -51,7 +51,7 @@ std::string CorrectorEngine::Correct(
 
         // 2) Moderate image resize to reduce tokens
         cv::Mat resized_image;
-        int max_dimension = 768;
+        int max_dimension = 512;
         if (image.rows > max_dimension || image.cols > max_dimension) {
             double scale = static_cast<double>(max_dimension) / std::max(image.rows, image.cols);
             cv::resize(image, resized_image, cv::Size(0, 0), scale, scale, cv::INTER_LINEAR);
@@ -131,6 +131,7 @@ std::string CorrectorEngine::Correct(
         params->SetSearchOption("top_p", DEFAULT_TOP_P);
         params->SetSearchOption("repetition_penalty", 1.0);  // Neutral
         params->SetSearchOption("no_repeat_ngram_size", 0);  // Neutral
+        params->SetSearchOption("top_k", 10);  // Add top-k limiting
 
         // 10) Create generator
         std::unique_ptr<OgaGenerator> generator = OgaGenerator::Create(*model_, *params);
@@ -138,7 +139,7 @@ std::string CorrectorEngine::Correct(
 
         // 11) Generation loop
         int generation_steps = 0;
-        const int MAX_GENERATION_STEPS = 200;
+        const int MAX_GENERATION_STEPS =150;
         
         while (!generator->IsDone() && generation_steps < MAX_GENERATION_STEPS) {
             generator->GenerateNextToken();
