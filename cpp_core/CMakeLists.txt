@@ -3,6 +3,7 @@ project(GenOCRCore CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 # --- Find System Dependencies ---
 find_package(OpenCV REQUIRED)
@@ -50,7 +51,6 @@ if(NOT extract_result EQUAL 0)
     message(FATAL_ERROR "Failed to extract ONNX Runtime standard archive")
 endif()
 
-
 # Try common nested paths
 set(ORT_STANDARD_CAND1 "${ORT_STANDARD_EXTRACT_DIR}/onnxruntime-linux-x64-1.22.0")
 set(ORT_STANDARD_CAND2 "${ORT_STANDARD_EXTRACT_DIR}/onnxruntime-win-x64-1.22.0")
@@ -59,7 +59,7 @@ set(ORT_STANDARD_CAND3 "${ORT_STANDARD_EXTRACT_DIR}/onnxruntime-osx-universal2-1
 foreach(cand IN LISTS ORT_STANDARD_CAND1 ORT_STANDARD_CAND2 ORT_STANDARD_CAND3)
     if(EXISTS "${cand}/include/onnxruntime_cxx_api.h")
         set(ONNXRuntime_INCLUDE_DIRS "${cand}/include")
-        set(ONNXRuntime_LIBRARIES "${cand}/lib/libonnxruntime.so") # or .dll/.dylib based on platform
+        set(ONNXRuntime_LIBRARIES "${cand}/lib/libonnxruntime.so")
         break()
     endif()
 endforeach()
@@ -68,7 +68,6 @@ if(NOT ONNXRuntime_INCLUDE_DIRS OR NOT ONNXRuntime_LIBRARIES)
     message(FATAL_ERROR "Could not find ONNX Runtime headers or library after extraction")
 endif()
 message(STATUS "Using ONNX Runtime from: ${ONNXRuntime_LIBRARIES}")
-
 
 # --- Detect Platform and Select ONNX GenAI Package ---
 find_package(CUDAToolkit QUIET)
@@ -84,19 +83,19 @@ set(ORT_GENAI_HASH "")
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     if(CUDAToolkit_FOUND)
-        set(ORT_GENAI_URL "https://github.com/microsoft/onnxruntime-genai/releases/download/v0.9.0/onnxruntime-genai-linux-cuda-x64-capi.zip")
-        set(ORT_GENAI_HASH "SHA256=23bcbc78ebcb2b27dc5c52d106670ac4a0e4e978c7c6332a803b33be06722ffb")
+        set(ORT_GENAI_URL "https://github.com/microsoft/onnxruntime-genai/releases/download/v0.9.0/onnxruntime-genai-0.9.0-linux-x64-cuda.tar.gz")
+        set(ORT_GENAI_HASH "SHA256=4cdb4b0d311b0cafa741f5cfa509ae4ac27550e9b03f566fe4cd10b2e515d231")
     else()
-        set(ORT_GENAI_URL "https://github.com/microsoft/onnxruntime-genai/releases/download/v0.9.0/onnxruntime-genai-linux-cpu-x64-capi.zip")
-        set(ORT_GENAI_HASH "SHA256=8cd98a529606ab5025f6819468d25904cbd995ed827ea17c4a3934a4002ba6d0")
+        set(ORT_GENAI_URL "https://github.com/microsoft/onnxruntime-genai/releases/download/v0.9.0/onnxruntime-genai-0.9.0-linux-x64.tar.gz")
+        set(ORT_GENAI_HASH "SHA256=ac2b1adbbfdb7233f9d8fa641a41cc2b28c87f81d8a7e55566e0c589e8115081")
     endif()
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Windows")
     if(CUDAToolkit_FOUND)
-        set(ORT_GENAI_URL "https://github.com/microsoft/onnxruntime-genai/releases/download/v0.9.0/onnxruntime-genai-win-cuda-x64-capi.zip")
-        set(ORT_GENAI_HASH "SHA256=09ed6abb06b9d5f344c84b5e161b24508c3af9eede06fb1beca7c157e6265714")
+        set(ORT_GENAI_URL "https://github.com/microsoft/onnxruntime-genai/releases/download/v0.9.0/onnxruntime-genai-0.9.0-win-x64-cuda.zip")
+        set(ORT_GENAI_HASH "SHA256=eefc6cb42bc136d269239f005a61e26277abd3aabef789ac96929b587062def7")
     else()
-        set(ORT_GENAI_URL "https://github.com/microsoft/onnxruntime-genai/releases/download/v0.9.0/onnxruntime-genai-win-cpu-x64-capi.zip")
-        set(ORT_GENAI_HASH "SHA256=bce06fe2694fac75ba989db38ccb3a24715da547ee9a6bb54a548a7c41eb3a32")
+        set(ORT_GENAI_URL "https://github.com/microsoft/onnxruntime-genai/releases/download/v0.9.0/onnxruntime-genai-0.9.0-win-x64.zip")
+        set(ORT_GENAI_HASH "SHA256=3cd1fccd7596c3660f5c6fe1bc2f1087c17c9af02134267a184a4ca42ce59300")
     endif()
 endif()
 
@@ -105,7 +104,7 @@ if(ORT_GENAI_URL STREQUAL "")
 endif()
 
 # --- Download and Extract ONNX GenAI ---
-set(ORT_GENAI_ARCHIVE "${CMAKE_CURRENT_BINARY_DIR}/onnxruntime_genai.zip")
+set(ORT_GENAI_ARCHIVE "${CMAKE_CURRENT_BINARY_DIR}/onnxruntime_genai_archive")
 set(ORT_GENAI_EXTRACT_DIR "${CMAKE_CURRENT_SOURCE_DIR}/src/third_party/onnxruntime_genai")
 
 file(DOWNLOAD
@@ -117,37 +116,41 @@ file(DOWNLOAD
 
 file(MAKE_DIRECTORY ${ORT_GENAI_EXTRACT_DIR})
 
-execute_process(
-    COMMAND unzip -o ${ORT_GENAI_ARCHIVE}
-    WORKING_DIRECTORY ${ORT_GENAI_EXTRACT_DIR}
-    RESULT_VARIABLE extract_result
-)
+# Extract based on file type
+if(ORT_GENAI_URL MATCHES "\\.zip$")
+    execute_process(
+        COMMAND unzip -o ${ORT_GENAI_ARCHIVE}
+        WORKING_DIRECTORY ${ORT_GENAI_EXTRACT_DIR}
+        RESULT_VARIABLE extract_result
+    )
+else()
+    execute_process(
+        COMMAND ${CMAKE_COMMAND} -E tar xzf ${ORT_GENAI_ARCHIVE}
+        WORKING_DIRECTORY ${ORT_GENAI_EXTRACT_DIR}
+        RESULT_VARIABLE extract_result
+    )
+endif()
+
 if(NOT extract_result EQUAL 0)
-    message(FATAL_ERROR "Failed to extract ONNXRuntime GenAI archive using system unzip")
+    message(FATAL_ERROR "Failed to extract ONNXRuntime GenAI archive")
 endif()
 message(STATUS "Extracted ONNXRuntime GenAI to: ${ORT_GENAI_EXTRACT_DIR}")
 
-# Extract inner tar.gz
-set(ORT_GENAI_TAR        "${ORT_GENAI_EXTRACT_DIR}/onnxruntime-genai-linux-cpu-x64-capi/onnxruntime-genai-0.9.0-linux-x64.tar.gz")
-set(ORT_GENAI_INNER_ROOT "${ORT_GENAI_EXTRACT_DIR}/onnxruntime-genai-linux-cpu-x64-capi")
-execute_process(
-    COMMAND ${CMAKE_COMMAND} -E tar xzf ${ORT_GENAI_TAR}
-    WORKING_DIRECTORY ${ORT_GENAI_INNER_ROOT}
-    RESULT_VARIABLE untar_result
-)
-if(NOT untar_result EQUAL 0)
-    message(FATAL_ERROR "Failed to extract inner ONNXRuntime GenAI tar.gz archive")
-endif()
+# Find the extracted directory (new structure is simpler)
+set(ORT_GENAI_CAND1 "${ORT_GENAI_EXTRACT_DIR}/onnxruntime-genai-0.9.0-linux-x64")
+set(ORT_GENAI_CAND2 "${ORT_GENAI_EXTRACT_DIR}/onnxruntime-genai-0.9.0-linux-x64-cuda")
+set(ORT_GENAI_CAND3 "${ORT_GENAI_EXTRACT_DIR}/onnxruntime-genai-0.9.0-win-x64")
+set(ORT_GENAI_CAND4 "${ORT_GENAI_EXTRACT_DIR}/onnxruntime-genai-0.9.0-win-x64-cuda")
 
-# Resolve actual include/lib dir (handles double-nesting)
-set(ORT_GENAI_CAND1 "${ORT_GENAI_INNER_ROOT}/onnxruntime-genai-0.9.0-linux-x64")
-set(ORT_GENAI_CAND2 "${ORT_GENAI_CAND1}/onnxruntime-genai-0.9.0-linux-x64")
-if(EXISTS "${ORT_GENAI_CAND1}/include/ort_genai.h")
-    set(ORT_GENAI_PACKAGE_DIR "${ORT_GENAI_CAND1}")
-elseif(EXISTS "${ORT_GENAI_CAND2}/include/ort_genai.h")
-    set(ORT_GENAI_PACKAGE_DIR "${ORT_GENAI_CAND2}")
-else()
-    message(FATAL_ERROR "Could not find ort_genai.h after extraction under: ${ORT_GENAI_INNER_ROOT}")
+foreach(cand IN LISTS ORT_GENAI_CAND1 ORT_GENAI_CAND2 ORT_GENAI_CAND3 ORT_GENAI_CAND4)
+    if(EXISTS "${cand}/include/ort_genai.h")
+        set(ORT_GENAI_PACKAGE_DIR "${cand}")
+        break()
+    endif()
+endforeach()
+
+if(NOT ORT_GENAI_PACKAGE_DIR)
+    message(FATAL_ERROR "Could not find ort_genai.h after extraction under: ${ORT_GENAI_EXTRACT_DIR}")
 endif()
 message(STATUS "Using ONNX GenAI package dir: ${ORT_GENAI_PACKAGE_DIR}")
 
