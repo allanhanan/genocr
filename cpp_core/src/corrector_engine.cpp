@@ -23,9 +23,16 @@ std::filesystem::path make_temp_png_path() {
 
 CorrectorEngine::CorrectorEngine(const std::string& model_dir) {
     std::cout << "Loading Phi-3 Vision corrector model from: " << model_dir << std::endl;
+    std::filesystem::path config_path = std::filesystem::path(model_dir) / "genai_config.json";
+    if (!std::filesystem::exists(config_path)) {
+        throw std::runtime_error("Missing genai_config.json in corrector model dir: " + model_dir);
+    }
     model_ = OgaModel::Create(model_dir.c_str());
+    if (!model_) throw std::runtime_error("GenAI model load failed (check model dir and ORT library match)");
     processor_ = OgaMultiModalProcessor::Create(*model_);
+    if (!processor_) throw std::runtime_error("GenAI processor init failed");
     tokenizer_stream_ = OgaTokenizerStream::Create(*processor_);
+    if (!tokenizer_stream_) throw std::runtime_error("GenAI tokenizer stream init failed");
 }
 
 std::string CorrectorEngine::Correct(
@@ -74,7 +81,7 @@ std::string CorrectorEngine::Correct(
         std::stringstream prompt_ss;
         prompt_ss
             << "<|user|>\n<|image_1|>\n"
-            << "You are an expert in correcting OCR errors across multiple languages. Use the image and context to fix the raw text.\n"
+            << "You are an expert in correcting OCR errors across multiple languages. Use the image and context to fix the raw text along with the text in image.\n"
             << "Rules:\n"
             << "- Preserve original structure with newlines.\n"
             << "- Fix casing, punctuation, spacing, accents, and common OCR misreads in any language.\n"

@@ -155,4 +155,5 @@ API server, Docker packaging, and Python bindings are planned to complement the 
 
 ## License
 
+Apache 2.0 License
 See LICENSE at the project root for terms governing code and third‑party components.

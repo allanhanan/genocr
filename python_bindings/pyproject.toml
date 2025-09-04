@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools", "pybind11"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "genocr"
+version = "0.1.0"
+description = "Multi-language OCR with AI correction"
+authors = [{name = "GenOCR Team"}]
+requires-python = ">=3.8"
+dependencies = [
+    "numpy>=1.19.0",
+    "opencv-python>=4.5.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=6.0", "black", "flake8"]
+test = ["pytest>=6.0"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["genocr*"]
+exclude = ["tests*"]
