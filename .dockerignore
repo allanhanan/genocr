@@ -1,0 +1,76 @@
+# Build artifacts
+**/build/
+**/dist/
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/*.so
+**/*.a
+**/*.o
+
+# Git
+.git/
+.gitignore
+
+# Python
+*.egg-info/
+.pytest_cache/
+venv/
+env/
+
+# Test files
+tests/
+
+# Documentation
+*.md
+LICENSE
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+.DS_Store
+
+/.gitignore
+/.gitmodules
+
+/.vscode
+
+/cpp_core/build/
+/cpp_core/src/third_party/
+/cpp_core/third_party
+
+/build/
+
+/models/corrector/
+/models/ocr_detection_multilingual/
+/models/ocr_recognition_multilingual/
+/models/detector.onnx
+
+
+/tests/models/__pycache__/
+/tests/python_bindings/__pycache__/
+
+.pytest_cache/
+
+/python_bindings/build
+/python_bindings/genocr/__pycache__/
+/python_bindings/genocr.egg-info/
+
+python_bindings/_genocr_core.cpython-310-x86_64-linux-gnu.so
+
+/api_server/build
+
+
+# Keep only necessary files
+!cpp_core/
+!api_server/
+!models/
+!docker-compose.yml
