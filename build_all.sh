@@ -7,18 +7,32 @@ echo "=== GenOCR Zero-Config Build ==="
 # Get the script's directory (base project dir)
 BASE_DIR=$(dirname "$(realpath "$0")")
 
+# ---------------------------------------
 # Stage 1: Build cpp_core
+# ---------------------------------------
 echo "Stage 1: Building C++ core..."
 cd "$BASE_DIR/cpp_core"
 mkdir -p build && cd build
 cmake ..
 cmake --build . -j
-
 cd "$BASE_DIR"
 echo "✓ C++ core built successfully"
 
-# Stage 2: Install Python bindings with bundled libraries
-echo "Stage 2: Installing Python bindings with bundled libraries..."
+# ---------------------------------------
+# Stage 2: Build API Server
+# ---------------------------------------
+echo "Stage 2: Building API server..."
+cd "$BASE_DIR/api_server"
+mkdir -p build && cd build
+cmake ..
+cmake --build . -j
+cd "$BASE_DIR"
+echo "✓ API server built successfully"
+
+# ---------------------------------------
+# Stage 3: Install Python bindings
+# ---------------------------------------
+echo "Stage 3: Installing Python bindings with bundled libraries..."
 cd "$BASE_DIR/python_bindings"
 
 # Uninstall previous version
@@ -26,19 +40,21 @@ pip uninstall genocr -y 2>/dev/null || true
 
 # Install package with bundled libraries
 pip install . --verbose --force-reinstall
+cd "$BASE_DIR"
+echo "✓ Python bindings installed successfully"
 
+# ---------------------------------------
+# Stage 4: Test Installation
+# ---------------------------------------
 echo ""
-echo "Build completed with auto-loading libraries!"
-
-# Test installation (should work without any manual configuration)
-echo "Testing zero-config installation..."
+echo "Testing zero-config Python installation..."
 python -c "
 import sys
 try:
     import genocr
     print('genocr imported successfully')
     print(f'Version: {genocr.__version__}')
-    
+
     from genocr._genocr_core import GenOCR
     print('C++ core loaded successfully!')
     print('')
@@ -48,12 +64,11 @@ try:
     print('Usage:')
     print('   import genocr')
     print('   result = genocr.process_image(\"image.jpg\", \"models/\")')
-    
+
 except ImportError as e:
     print('Import failed:', e)
     print('')
     print('This may indicate missing system dependencies.')
-    print('Try installing: sudo apt-get install libgomp1')
     sys.exit(1)
 except Exception as e:
     print('Unexpected error:', e)
@@ -63,4 +78,4 @@ except Exception as e:
 "
 
 echo ""
-echo "GenOCR is now ready for usage!"
+echo "✓ GenOCR is now ready for usage!"

@@ -13,6 +13,7 @@ message(STATUS "Using pre-built cpp_core: ${CPP_CORE_LIB}")
 
 # Only build Python bindings - cpp_core already built
 option(BUILD_PYTHON_BINDINGS "Build Python bindings" OFF)
+option(BUILD_API_SERVER "Build Drogon API Server" OFF)
 
 if(BUILD_PYTHON_BINDINGS)
     find_package(pybind11 QUIET)
@@ -21,4 +22,8 @@ if(BUILD_PYTHON_BINDINGS)
     else()
         message(WARNING "pybind11 not found")
     endif()
+endif()
+
+if(BUILD_API_SERVER)
+    add_subdirectory(api_server)
 endif()
